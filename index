@@ -1,0 +1,419 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Load Sarabun -->
+  <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;500;600;700&family=Noto+Sans+Thai:wght@300;400;500;700&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+  <style>
+    body { font-family: 'Noto Sans Thai', sans-serif; background-color: #f8fafc; }
+    /* Styles */
+    .step-card { background: white; border-radius: 0.75rem; box-shadow: 0 1px 3px rgba(0,0,0,0.1); padding: 1.5rem; margin-bottom: 1.5rem; }
+    .schedule-card { border: 2px solid #e2e8f0; border-radius: 0.5rem; padding: 1rem; cursor: pointer; transition: all 0.2s; }
+    .schedule-card:hover { border-color: #818cf8; background-color: #f5f3ff; }
+    .schedule-card.selected { border-color: #4f46e5; background-color: #eef2ff; ring: 2px solid #4f46e5; }
+    .tag { padding: 2px 8px; border-radius: 99px; font-size: 0.75rem; font-weight: 500; }
+    .tag-single { background: #dbeafe; color: #1e40af; }
+    .tag-double { background: #fce7f3; color: #9d174d; }
+    .date-badge { background: #fce7f3; color: #be185d; padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; }
+    /* Table */
+    .schedule-table { width: 100%; min-width: 800px; border-collapse: collapse; font-size: 0.8rem; }
+    .schedule-table th, .schedule-table td { border: 1px solid #e5e7eb; padding: 0.5rem; text-align: center; }
+    .cell-filled { background: #e0e7ff; } 
+    .cell-req-swap { background: #d1fae5 !important; border: 2px solid #059669 !important; color: #065f46; font-weight:bold; } 
+    .cell-target-swap { background: #ffedd5 !important; border: 2px solid #ea580c !important; color: #9a3412; font-weight:bold; }
+    /* Print */
+    @media print { body * { visibility: hidden; } #printArea, #printArea * { visibility: visible; } #printArea { position: absolute; top:0; left:0; width:100%; } }
+    .doc-page { display: none; font-family: 'TH Sarabun New', 'Sarabun'; padding: 40px; }
+    .doc-table { width: 100%; border-collapse: collapse; } .doc-table th, .doc-table td { border: 1px solid black; padding: 5px; text-align: center; }
+  </style>
+</head>
+<body class="py-6 px-4 max-w-4xl mx-auto">
+
+  <div id="screenArea">
+      <div class="text-center mb-8">
+        <h1 class="text-3xl font-bold text-indigo-900">ระบบแลกเปลี่ยนคาบสอน</h1>
+        <p class="text-gray-600 mt-2">เลือกคาบสอน > ค้นหาคู่แลก > เพิ่มรายการ > <b>ดาวน์โหลดเอกสาร</b></p>
+      </div>
+
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <!-- Requester -->
+        <div class="step-card border-t-4 border-indigo-500">
+          <h2 class="text-xl font-bold text-gray-800 mb-4">1. ข้อมูลของคุณ</h2>
+          <div class="space-y-4">
+            <select id="reqDept" class="w-full p-2 border rounded" onchange="filterTeachers('req')"><option value="">-- เลือกกลุ่มสาระ --</option></select>
+            <select id="reqTeacher" class="w-full p-2 border rounded" disabled><option value="">-- รอเลือกกลุ่มสาระ --</option></select>
+            
+            <!-- เปลี่ยนจาก Input Date เป็น Select วัน -->
+            <select id="reqDay" class="w-full p-2 border rounded" onchange="loadSchedule('req')">
+                <option value="">-- เลือกวันสอน --</option>
+                <option value="จันทร์">วันจันทร์</option>
+                <option value="อังคาร">วันอังคาร</option>
+                <option value="พุธ">วันพุธ</option>
+                <option value="พฤหัสบดี">วันพฤหัสบดี</option>
+                <option value="ศุกร์">วันศุกร์</option>
+            </select>
+
+            <div id="reqScheduleArea" class="hidden mt-4 pt-4 border-t">
+              <p class="text-sm font-bold text-indigo-700 mb-2">👇 เลือกคาบที่ต้องการแลก:</p>
+              <div id="reqScheduleList" class="space-y-2 max-h-60 overflow-y-auto"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Target -->
+        <div class="step-card border-t-4 border-pink-500 relative">
+          <h2 class="text-xl font-bold text-gray-800 mb-4">2. ค้นหาคู่แลก</h2>
+          <div id="overlayBlock" class="absolute inset-0 bg-white/80 flex items-center justify-center z-10"><p>กรุณาเลือกคาบของคุณก่อน</p></div>
+          <div class="space-y-4">
+            <div class="bg-blue-50 p-3 rounded text-sm text-blue-800">
+               เงื่อนไข: ห้อง <span id="condRoom" class="font-bold">...</span> ประเภท <span id="condType" class="font-bold">...</span>
+               <br><span class="text-gray-500 text-xs">(ค้นหาอัตโนมัติ จันทร์-ศุกร์ ในสัปดาห์, เช็คตารางสอนไม่ให้ชน)</span>
+            </div>
+            <div id="matchResultsArea" class="hidden">
+               <p class="text-sm font-bold text-pink-700 mb-2">👇 ผลการค้นหา: <span id="resultCount" class="font-normal text-gray-500"></span></p>
+               <div id="matchList" class="space-y-2 max-h-60 overflow-y-auto"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Step 3: Compare -->
+      <div id="step3Card" class="step-card border-t-4 border-green-500 hidden">
+        <h3 class="text-lg font-bold mb-2">3. เปรียบเทียบตารางสอน (ผลลัพธ์หลังแลก)</h3>
+        <div class="flex gap-4 mb-2 text-sm">
+            <div class="flex items-center"><span class="w-3 h-3 bg-green-100 border border-green-500 mr-1"></span> คุณ (ผู้ขอ)</div>
+            <div class="flex items-center"><span class="w-3 h-3 bg-orange-100 border border-orange-500 mr-1"></span> คู่แลก (ผู้ให้)</div>
+        </div>
+        <div class="schedule-table-container overflow-x-auto">
+           <table class="schedule-table" id="comparisonTable"><thead><tr><th class="w-32">ชื่อครู</th><th>1</th><th>2</th><th>3</th><th>4</th><th>5</th><th>6</th><th>7</th><th>8</th><th>9</th></tr></thead><tbody></tbody></table>
+        </div>
+      </div>
+
+      <!-- Summary -->
+      <div class="step-card mt-6 border border-gray-200">
+         <h3 class="text-lg font-bold mb-3">ตรวจสอบรายการ</h3>
+         <table class="w-full text-sm text-left">
+            <thead class="bg-gray-100 text-gray-700"><tr><th class="p-2">คุณ (ผู้ขอ)</th><th class="p-2">คู่แลก (ผู้ให้)</th></tr></thead>
+            <tbody><tr><td class="p-2 border-b" id="summaryReq">...</td><td class="p-2 border-b" id="summaryTarget">...</td></tr></tbody>
+         </table>
+         
+         <div id="selectionActions" class="hidden mt-6 flex flex-col sm:flex-row gap-3">
+            <button onclick="addToPendingList()" class="flex-1 bg-gray-100 text-gray-700 border border-gray-300 py-3 px-4 rounded-lg shadow-sm hover:bg-gray-200 flex items-center justify-center font-bold transition">
+               <span class="mr-2">➕</span> เพิ่มลงรายการ (รอพิมพ์ทีเดียว)
+            </button>
+            <button onclick="openPrintDetailsModal('single')" class="flex-1 bg-green-600 text-white py-3 px-4 rounded-lg shadow-md hover:bg-green-700 flex items-center justify-center font-bold transition">
+               <span class="mr-2">📥</span> บันทึกและดาวน์โหลด (รายการนี้)
+            </button>
+         </div>
+      </div>
+
+      <!-- Pending List -->
+      <div id="pendingListSection" class="step-card border-t-4 border-gray-700 hidden">
+         <h3 class="text-lg font-bold mb-3">📋 รายการที่รอการบันทึก (<span id="pendingCount">0</span>)</h3>
+         <table class="w-full text-sm border mb-4"><thead class="bg-gray-100"><tr><th class="p-2 border">#</th><th class="p-2 border">วันที่ขอ</th><th class="p-2 border">คาบ</th><th class="p-2 border">วันที่แลก</th><th class="p-2 border">คาบ</th><th class="p-2 border">คู่แลก</th><th class="p-2 border">ลบ</th></tr></thead><tbody id="pendingTableBody"></tbody></table>
+         <button onclick="openPrintDetailsModal('batch')" class="w-full bg-indigo-600 text-white py-3 rounded shadow-lg font-bold text-lg hover:bg-indigo-700">บันทึกทั้งหมดและสร้างเอกสาร</button>
+      </div>
+  </div>
+
+  <!-- Print Template -->
+  <div id="printArea"><div class="doc-page" id="docPage">
+     <div style="text-align:center; font-weight:bold; font-size:20pt; margin-bottom:20px;">แบบคำขอแลกเปลี่ยนคาบสอน/จัดสอนแทน</div>
+     <div style="text-align:right; font-size:16pt;">วันที่ <span id="p_date"></span> เดือน <span id="p_month"></span> พ.ศ. <span id="p_year"></span></div>
+     <div style="font-size:16pt; margin-bottom:20px;">
+        เรื่อง การแลกเปลี่ยนคาบสอน<br>เรียน ผู้อำนวยการโรงเรียน<br>
+        <div style="text-indent:2.5cm; margin-top:10px;">
+           ข้าพเจ้า <span id="p_name"></span> ตำแหน่ง <span id="p_position"></span> กลุ่มสาระฯ <span id="p_dept"></span> 
+           ขออนุญาต <span id="p_type"></span> เนื่องจาก <span id="p_reason"></span> ในวันที่ <span id="p_event_date"></span> ณ <span id="p_location"></span>
+        </div>
+     </div>
+     <table class="doc-table" style="width:100%; font-size:16pt; margin-bottom:20px;">
+        <thead><tr><th colspan="5">คาบสอนปกติ</th><th colspan="5">คาบที่ขอแลก</th><th rowspan="2">ลงชื่อผู้รับ</th></tr>
+        <tr><th>ว/ด/ป</th><th>คาบ</th><th>ชั้น</th><th>วิชา</th><th>สถานที่</th><th>ว/ด/ป</th><th>คาบ</th><th>ชั้น</th><th>วิชา</th><th>สถานที่</th></tr></thead>
+        <tbody id="printTableBody"></tbody>
+     </table>
+     <div style="font-size:16pt; text-align:right; margin-top:40px;">
+        ลงชื่อ ......................................... ผู้ขออนุญาต<br>(<span id="p_sign_name"></span>)<br>ตำแหน่ง <span id="p_sign_position"></span>
+     </div>
+  </div></div>
+
+  <script>
+    // --- APP LOGIC ---
+    let allTeachers = [], selectedReq = null, selectedTarget = null;
+    let pendingList = [], currentReqSchedule = [], currentTargetSchedule = [];
+
+    function normalizeScheduleData(scheduleData) {
+        if (!Array.isArray(scheduleData)) return [];
+        return scheduleData.map(item => {
+            if (item.type === 'คาบคู่' && item.period && !String(item.period).includes('-')) {
+                const startPeriod = parseInt(item.period);
+                if (!isNaN(startPeriod)) {
+                    item.period = `${startPeriod}-${startPeriod + 1}`;
+                }
+            }
+            return item;
+        });
+    }
+
+    window.onload = function() {
+        Swal.fire({ title: 'กำลังโหลดข้อมูล...', text:'กรุณารอสักครู่', didOpen: () => Swal.showLoading() });
+        google.script.run
+          .withSuccessHandler(initData)
+          .withFailureHandler(err => Swal.fire('โหลดข้อมูลไม่สำเร็จ', err.message, 'error'))
+          .getMasterData();
+    };
+
+    function initData(data) {
+        Swal.close();
+        allTeachers = data.teachers;
+        const s = document.getElementById('reqDept');
+        s.innerHTML = '<option value="">-- เลือกกลุ่มสาระ --</option>';
+        data.departments.forEach(d => { let o=document.createElement('option'); o.text=d; s.add(o); });
+    }
+
+    function filterTeachers() {
+        const dept = document.getElementById('reqDept').value;
+        const s = document.getElementById('reqTeacher'); 
+        s.innerHTML = '<option value="">-- เลือกครู --</option>'; s.disabled = !dept;
+        if(dept) {
+            const filtered = allTeachers.filter(t => t.dept === dept);
+            filtered.forEach(t => { let o=document.createElement('option'); o.value=t.name; o.text=t.name; s.add(o); });
+        }
+        resetSelection();
+    }
+
+    function loadSchedule() {
+        const t = document.getElementById('reqTeacher').value, d = document.getElementById('reqDay').value;
+        if(!t || !d) return;
+        document.getElementById('reqScheduleArea').classList.remove('hidden');
+        document.getElementById('reqScheduleList').innerHTML = '<p class="text-center text-gray-500">กำลังโหลด...</p>';
+        
+        google.script.run.withSuccessHandler(s => {
+            currentReqSchedule = normalizeScheduleData(s);
+            const list = document.getElementById('reqScheduleList'); list.innerHTML = '';
+            if(currentReqSchedule.length === 0) {
+               list.innerHTML = '<p class="text-center text-red-500">ไม่พบตารางสอนในวันนี้</p>'; return;
+            }
+            currentReqSchedule.forEach(item => {
+                const div = document.createElement('div'); div.className = 'schedule-card';
+                // UPDATE: แสดง รหัสวิชา ชื่อวิชา (ตามคำขอ)
+                div.innerHTML = `
+                    <div class="flex justify-between items-center mb-1">
+                        <span class="font-bold text-lg text-indigo-700">${item.subjectCode} ${item.subjectName}</span>
+                        <span class="tag ${item.type==='คาบคู่'?'tag-double':'tag-single'}">${item.type}</span>
+                    </div>
+                    <div class="text-sm text-gray-600">คาบ ${item.period} (${item.time}) ห้อง ${item.classRoom}</div>
+                `;
+                div.onclick = () => selectMyCard(item, div);
+                list.appendChild(div);
+            });
+        }).getSchedule(t, d);
+    }
+
+    function selectMyCard(data, el) {
+        Array.from(document.getElementById('reqScheduleList').children).forEach(c=>c.classList.remove('selected'));
+        el.classList.add('selected');
+        selectedReq = data; selectedTarget = null;
+        document.getElementById('overlayBlock').classList.add('hidden');
+        document.getElementById('condRoom').innerText = data.classRoom; document.getElementById('condType').innerText = data.type;
+        findMatchesAuto(); updateSummary();
+    }
+
+    function findMatchesAuto() {
+        document.getElementById('matchResultsArea').classList.remove('hidden');
+        document.getElementById('matchList').innerHTML = '<div class="text-center py-2">กำลังค้นหา...</div>';
+        const reqName = document.getElementById('reqTeacher').value;
+        const reqDay = document.getElementById('reqDay').value;
+        
+        google.script.run.withSuccessHandler(res => {
+            const list = document.getElementById('matchList'); list.innerHTML = '';
+            const normalizedRes = normalizeScheduleData(res);
+
+            if(normalizedRes.length === 0) {
+                list.innerHTML = `<div class="text-center py-4 text-red-500">ไม่พบครูที่สามารถแลกได้ (ติดสอน หรือ ห้องไม่ตรง)</div>`;
+                return;
+            }
+            document.getElementById('resultCount').innerText = `พบ ${normalizedRes.length} รายการ`;
+            
+            const dayOrder = { "จันทร์": 1, "อังคาร": 2, "พุธ": 3, "พฤหัสบดี": 4, "ศุกร์": 5 };
+            normalizedRes.sort((a, b) => dayOrder[a.date] - dayOrder[b.date]);
+
+            normalizedRes.forEach(item => {
+                const div = document.createElement('div'); 
+                div.className = `schedule-card border-pink-200 hover:bg-pink-50`;
+                // UPDATE: แสดง รหัสวิชา ชื่อวิชา (ตามคำขอ)
+                div.innerHTML = `
+                    <div class="flex justify-between items-center mb-1">
+                        <span class="date-badge">วัน${item.date}</span>
+                        <span class="text-xs text-gray-500">คาบ ${item.period}</span>
+                    </div>
+                    <div class="font-bold text-gray-800">${item.subjectCode} ${item.subjectName}</div>
+                    <div class="text-xs text-gray-500">${item.teacher} ห้อง ${item.classRoom}</div>
+                `;
+                div.onclick = () => selectTargetCard(item, div);
+                list.appendChild(div);
+            });
+        }).findMatchingCandidatesAuto(
+            {classRoom: selectedReq.classRoom, type: selectedReq.type, period: selectedReq.period}, 
+            reqDay, 
+            reqName
+        );
+    }
+
+    function selectTargetCard(data, el) {
+        Array.from(document.getElementById('matchList').children).forEach(c=>c.classList.remove('selected'));
+        el.classList.add('selected');
+        selectedTarget = data;
+        document.getElementById('step3Card').classList.remove('hidden');
+        
+        google.script.run.withSuccessHandler(s => {
+            currentTargetSchedule = normalizeScheduleData(s); 
+            renderComparisonTable();
+        }).getSchedule(data.teacher, data.date);
+        updateSummary();
+    }
+
+    function renderComparisonTable() {
+        const tbody = document.querySelector('#comparisonTable tbody'); tbody.innerHTML = '';
+        const createRow = (name, s, hl, cls) => {
+            let h=`<tr><td class="p-2 border bg-gray-50 text-xs font-bold">${name}</td>`;
+            for(let i=1; i<=9; i++) {
+                const f = s.find(x => {
+                    if (x.period.includes('-')) {
+                        const [start, end] = x.period.split('-').map(Number);
+                        return i >= start && i <= end;
+                    }
+                    return Number(x.period) === i;
+                });
+                
+                let isH = false;
+                if (hl) {
+                    if (hl.includes('-')) {
+                        const [hStart, hEnd] = hl.split('-').map(Number);
+                        isH = i >= hStart && i <= hEnd;
+                    } else {
+                        isH = Number(hl) === i;
+                    }
+                }
+
+                h+=`<td class="border p-1 ${f ? (isH?cls:'cell-filled') : ''}">${f?`<div class="text-xs">${f.subjectCode}<br>${f.classRoom}</div>`:''}</td>`;
+            }
+            return h+'</tr>';
+        };
+        
+        // 1. Requester Top
+        tbody.innerHTML += createRow(document.getElementById('reqTeacher').value.split(' ')[0] + " (คุณ)", currentReqSchedule, selectedReq.period, 'cell-req-swap');
+
+        // 2. Target Bottom
+        if(selectedTarget) {
+             const tName = selectedTarget.teacher.split(' ')[0];
+             tbody.innerHTML += createRow(tName + " (คู่แลก)", currentTargetSchedule, selectedTarget.period, 'cell-target-swap');
+        }
+    }
+
+    function updateSummary() {
+        const r = selectedReq, t = selectedTarget;
+        document.getElementById('summaryReq').innerHTML = r ? `<b>${document.getElementById('reqTeacher').value}</b><br>คาบ ${r.period} (${r.subjectCode})` : '...';
+        document.getElementById('summaryTarget').innerHTML = t ? `<b>${t.teacher}</b><br>คาบ ${t.period} (${t.subjectCode})<br><small>วัน${t.date}</small>` : '...';
+        document.getElementById('selectionActions').classList.toggle('hidden', !r || !t);
+    }
+
+    function addToPendingList() {
+        if(!selectedTarget) return;
+        const reqDate = document.getElementById('reqDay').value; 
+        const reqName = document.getElementById('reqTeacher').value;
+        const reqDept = document.getElementById('reqDept').value;
+
+        pendingList.push({ id: Date.now(), requester: {...selectedReq, date: reqDate, name: reqName, dept: reqDept}, target: selectedTarget });
+        renderPendingList(); 
+        
+        selectedReq = null; 
+        selectedTarget = null;
+        Array.from(document.getElementById('reqScheduleList').children).forEach(c => c.classList.remove('selected'));
+        document.getElementById('matchResultsArea').classList.add('hidden');
+        document.getElementById('step3Card').classList.add('hidden');
+        document.getElementById('overlayBlock').classList.remove('hidden');
+        updateSummary();
+        
+        Swal.fire({icon: 'success', title: 'เพิ่มรายการแล้ว', timer: 1000, showConfirmButton: false});
+    }
+
+    function renderPendingList() {
+        const b = document.getElementById('pendingTableBody'); b.innerHTML = '';
+        document.getElementById('pendingCount').innerText = pendingList.length;
+        document.getElementById('pendingListSection').classList.toggle('hidden', pendingList.length===0);
+        pendingList.forEach((it, i) => {
+            // it.requester.date และ it.target.date เป็นชื่อวัน เช่น "จันทร์"
+            b.innerHTML += `<tr><td class="border p-2 text-center">${i+1}</td><td class="border p-2">วัน${it.requester.date}</td><td class="border p-2">คาบ ${it.requester.period}</td><td class="border p-2">วัน${it.target.date}</td><td class="border p-2">คาบ ${it.target.period}</td><td class="border p-2">${it.target.teacher}</td><td class="border p-2 text-center"><button class="text-red-500" onclick="removeFromPending(${it.id})">ลบ</button></td></tr>`;
+        });
+    }
+    
+    function removeFromPending(id) { pendingList = pendingList.filter(x=>x.id!==id); renderPendingList(); }
+    
+    function resetSelection() { 
+        selectedReq=null; selectedTarget=null; 
+        document.getElementById('reqScheduleArea').classList.add('hidden'); 
+        document.getElementById('matchResultsArea').classList.add('hidden'); 
+        document.getElementById('step3Card').classList.add('hidden');
+        document.getElementById('overlayBlock').classList.remove('hidden');
+        updateSummary(); 
+    }
+
+    // --- Modal & Processing ---
+    function openPrintDetailsModal(mode) {
+        if(mode === 'batch' && pendingList.length===0) return;
+        if(mode === 'single' && (!selectedReq || !selectedTarget)) return;
+
+        const reqName = mode === 'single' ? document.getElementById('reqTeacher').value : pendingList[0].requester.name;
+        const reqDept = mode === 'single' ? document.getElementById('reqDept').value : pendingList[0].requester.dept;
+        const today = new Date().toISOString().split('T')[0];
+
+        Swal.fire({
+            title: 'ข้อมูลเพิ่มเติมสำหรับเอกสาร',
+            html: `<div class="text-left space-y-3 text-sm"><div class="grid grid-cols-2 gap-2"><div><label class="block text-gray-700">วันที่เขียนคำขอ</label><input id="input_date" type="date" class="w-full border p-2 rounded" value="${today}"></div><div><label class="block text-gray-700">กลุ่มสาระฯ</label><input type="text" class="w-full border p-2 rounded bg-gray-100" value="${reqDept}" readonly></div></div><div><label class="block text-gray-700">ชื่อผู้ขออนุญาต</label><input type="text" class="w-full border p-2 rounded bg-gray-100" value="${reqName}" readonly></div><div class="grid grid-cols-2 gap-2"><div><label class="block text-gray-700">ตำแหน่ง (เช่น ครู)</label><input id="i_pos" class="w-full border p-2 rounded"></div><div><label class="block text-gray-700">วิทยฐานะ</label><input id="i_level" class="w-full border p-2 rounded" placeholder="ถ้ามี"></div></div><div><label class="block text-gray-700">เนื่องจาก</label><textarea id="i_reason" class="w-full border p-2 rounded" placeholder="เช่น ติดราชการ..."></textarea></div><div class="grid grid-cols-2 gap-2"><div><label class="block text-gray-700">ในวันที่ (วันทำกิจกรรม)</label><input id="i_event" class="w-full border p-2 rounded"></div><div><label class="block text-gray-700">สถานที่</label><input id="i_loc" class="w-full border p-2 rounded"></div></div></div>`,
+            showCancelButton: true, confirmButtonText: 'ยืนยัน', confirmButtonColor: '#4f46e5',
+            preConfirm: () => ({ date: document.getElementById('input_date').value, pos: document.getElementById('i_pos').value, level: document.getElementById('i_level').value, reason: document.getElementById('i_reason').value, event: document.getElementById('i_event').value, loc: document.getElementById('i_loc').value })
+        }).then(res => { if(res.isConfirmed) { if (mode === 'single') saveAndPrintSingle(res.value); else saveAndPrintBatch(res.value); } });
+    }
+
+    function saveAndPrintSingle(details) {
+        Swal.fire({title: 'กำลังบันทึก...', didOpen: () => Swal.showLoading()});
+        
+        const reqDate = document.getElementById('reqDay').value;
+
+        const singleItem = { requester: {...selectedReq, date: reqDate, name: document.getElementById('reqTeacher').value, dept: document.getElementById('reqDept').value}, target: selectedTarget };
+        const payload = { requester: {...singleItem.requester, ...details}, target: singleItem.target };
+        
+        google.script.run.withSuccessHandler(() => {
+            generateDoc(details, [singleItem]); 
+            Swal.fire({icon:'success', title:'บันทึกสำเร็จ', html:`<button onclick="exportWord()" class="bg-blue-600 text-white px-4 py-2 rounded">Download Word</button>`});
+            resetSelection();
+        }).withFailureHandler(e => Swal.fire('Error', e.toString(), 'error')).processForm(payload);
+    }
+
+    function saveAndPrintBatch(details) {
+        Swal.fire({title: 'กำลังบันทึก...', didOpen: () => Swal.showLoading()});
+        let chain = Promise.resolve();
+        pendingList.forEach(item => { const payload = { requester: {...item.requester, ...details}, target: item.target }; chain = chain.then(() => new Promise((res, rej) => google.script.run.withSuccessHandler(res).withFailureHandler(rej).processForm(payload))); });
+        chain.then(() => { generateDoc(details, pendingList); Swal.fire({icon:'success', title:'สำเร็จ', html:`<button onclick="exportWord()" class="bg-blue-600 text-white px-4 py-2 rounded">Download Word</button>`}); pendingList = []; renderPendingList(); }).catch(e => Swal.fire('Error', e.toString(), 'error'));
+    }
+
+    function generateDoc(details, items) {
+        const first = items[0]; const dDate = new Date(details.date); const months = ["มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน", "กรกฎาคม", "สิงหาคม", "กันยายน", "ตุลาคม", "พฤศจิกายน", "ธันวาคม"];
+        document.getElementById('p_date').innerText = dDate.getDate(); document.getElementById('p_month').innerText = months[dDate.getMonth()]; document.getElementById('p_year').innerText = dDate.getFullYear() + 543;
+        document.getElementById('p_name').innerText = first.requester.name; document.getElementById('p_position').innerText = details.pos; document.getElementById('p_dept').innerText = first.requester.dept;
+        document.getElementById('p_type').innerText = "แลกเปลี่ยนคาบสอน"; document.getElementById('p_reason').innerText = details.reason; document.getElementById('p_event_date').innerText = details.event; document.getElementById('p_location').innerText = details.loc; document.getElementById('p_sign_name').innerText = first.requester.name;
+        const tb = document.getElementById('printTableBody'); tb.innerHTML = '';
+        items.forEach(it => { 
+            const reqDateStr = "วัน" + it.requester.date;
+            const targetDateStr = "วัน" + it.target.date;
+            tb.innerHTML += `<tr><td>${reqDateStr}</td><td>${it.requester.period}</td><td>${it.requester.classRoom}</td><td>${it.requester.subjectCode}</td><td>${it.requester.classRoom}</td><td>${targetDateStr}</td><td>${it.target.period}</td><td>${it.target.classRoom}</td><td>${it.target.subjectCode}</td><td>${it.target.classRoom}</td><td>${it.target.teacher}</td></tr>`; 
+        });
+        document.getElementById('docPage').style.display = 'block';
+    }
+    function formatDateShort(s) { if(!s) return "-"; const d=new Date(s); return `${d.getDate()}/${d.getMonth()+1}/${(d.getFullYear()+543).toString().slice(-2)}`; }
+    function exportWord() { const content = document.getElementById('docPage').innerHTML; const html = `<html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'><head><meta charset='utf-8'><title>Doc</title><style>body{font-family:'TH Sarabun New';}table{border-collapse:collapse;width:100%;}td,th{border:1px solid black;text-align:center;}</style></head><body>${content}</body></html>`; const blob = new Blob(['\ufeff', html], {type: 'application/msword'}); const link = document.createElement('a'); link.href = URL.createObjectURL(blob); link.download = 'แบบคำขอ.doc'; document.body.appendChild(link); link.click(); document.body.removeChild(link); }
+  </script>
+</body>
+</html>
